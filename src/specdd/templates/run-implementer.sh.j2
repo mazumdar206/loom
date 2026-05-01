@@ -9,6 +9,22 @@ if [ ! -f "$DB" ]; then
   exit 1
 fi
 
+# Use Python's built-in sqlite3 — no system sqlite3 binary required
+_query() {
+  python3 -c "
+import sqlite3, sys
+try:
+    conn = sqlite3.connect('$DB')
+    conn.execute('PRAGMA journal_mode=WAL')
+    row = conn.execute(sys.argv[1]).fetchone()
+    print('|'.join(str(c) for c in row) if row else '')
+    conn.close()
+except Exception as e:
+    print('ERROR:' + str(e), file=sys.stderr)
+    sys.exit(1)
+" "$1"
+}
+
 SLEEP_INITIAL=10
 SLEEP_MAX=300
 SLEEP_CURRENT=$SLEEP_INITIAL
@@ -19,8 +35,8 @@ import yaml, sys
 try:
     cfg = yaml.safe_load(open('$PROJECT_ROOT/.specdd/config.yml'))
     print(cfg.get('models', {}).get('implementer', ''))
-except Exception as e:
-    sys.exit(0)
+except Exception:
+    pass
 " 2>/dev/null || true)
 
 trap 'echo "[$(date +%H:%M:%S)] Stopping loop."; exit 0' INT TERM
@@ -30,7 +46,9 @@ echo "[$(date +%H:%M:%S)] Project: $PROJECT_ROOT"
 
 while true; do
   # Cheap SQL check — no model invoked
-  if ! NEXT=$(sqlite3 "$DB" "SELECT id||'|'||complexity FROM tasks WHERE status='TODO' OR (status='IN_PROGRESS' AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = tasks.id AND e.created_at > datetime('now', '-5 seconds'))) ORDER BY (CASE status WHEN 'TODO' THEN 0 ELSE 1 END), priority, created_at LIMIT 1;" 2>&1); then
+  NEXT_SQL="SELECT id||'|'||complexity FROM tasks WHERE status='TODO' OR (status='IN_PROGRESS' AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = tasks.id AND e.created_at > datetime('now', '-5 seconds'))) ORDER BY (CASE status WHEN 'TODO' THEN 0 ELSE 1 END), priority, created_at LIMIT 1"
+
+  if ! NEXT=$(_query "$NEXT_SQL" 2>&1); then
     echo "[$(date +%H:%M:%S)] DB query failed: $NEXT"
     echo "[$(date +%H:%M:%S)] Pausing 30s before retry."
     sleep 30
@@ -67,7 +85,8 @@ while true; do
   gemini $MODEL_FLAG -p "Run the SpecDD implementer protocol for task $TASK_ID. Follow GEMINI.md exactly. Call start_task($TASK_ID), then proceed through plan approval (if required), Red/Green/Refactor coding, and finally complete_task or escalate_task. Use complete_task tool errors to drive retry: if tests fail, fix the code and call complete_task again. Exit when the tool call returns submitted, done, or escalated."
 
   # Check final state
-  if ! STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=$TASK_ID;" 2>&1); then
+  STATUS_SQL="SELECT status FROM tasks WHERE id=$TASK_ID"
+  if ! STATUS=$(_query "$STATUS_SQL" 2>&1); then
     echo "[$(date +%H:%M:%S)] DB query failed: $STATUS. Pausing."
     exit 1
   fi
