@@ -72,6 +72,8 @@ def init_command(force: bool = False) -> None:
         "bash_allowlist": bash_allowlist,
         "template_version": TEMPLATE_VERSION,
         "date": date.today().isoformat(),
+        # Absolute path so MCP subprocess launched by Claude Code resolves correctly
+        "project_root": str(root.resolve()),
     }
 
     console.print("\n[bold]Writing files...[/bold]\n")
@@ -97,11 +99,17 @@ def init_command(force: bool = False) -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     console.print(f"  [green]✓[/green] .specdd/logs/")
 
-    # 4. .claude/settings.json
+    # 4a. .mcp.json — Claude Code reads MCP servers from here (not .claude/settings.json)
+    mcp_json = root / ".mcp.json"
+    mcp_content = _render("mcp.json.j2", context)
+    if _safe_write(mcp_json, mcp_content, force):
+        console.print(f"  [green]✓[/green] .mcp.json (Claude Code MCP server)")
+
+    # 4b. .claude/settings.json — permissions only, no mcpServers
     claude_settings = root / ".claude" / "settings.json"
     claude_content = _render("claude-settings.json.j2", context)
     if _safe_write(claude_settings, claude_content, force):
-        console.print(f"  [green]✓[/green] .claude/settings.json")
+        console.print(f"  [green]✓[/green] .claude/settings.json (permissions)")
 
     # 5. .gemini/settings.json
     gemini_settings = root / ".gemini" / "settings.json"

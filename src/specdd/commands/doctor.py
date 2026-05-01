@@ -44,13 +44,21 @@ def doctor_command(json_output: bool = False) -> None:
         if not shutil.which(binary):
             blocking.append(f"Binary '{binary}' not found on PATH.")
 
-    # 3. Settings files exist
-    claude_settings = root / ".claude" / "settings.json"
+    # 3. MCP config and settings files exist
+    mcp_json = root / ".mcp.json"
     gemini_settings = root / ".gemini" / "settings.json"
-    if not claude_settings.exists():
-        blocking.append(f".claude/settings.json not found.")
+    if not mcp_json.exists():
+        blocking.append(".mcp.json not found (Claude Code MCP server config). Re-run 'specdd init'.")
+    else:
+        import json as _json
+        try:
+            mcp_cfg = _json.loads(mcp_json.read_text())
+            if "specdd" not in mcp_cfg.get("mcpServers", {}):
+                blocking.append(".mcp.json exists but 'specdd' server is not configured.")
+        except Exception:
+            blocking.append(".mcp.json exists but could not be parsed.")
     if not gemini_settings.exists():
-        blocking.append(f".gemini/settings.json not found.")
+        blocking.append(".gemini/settings.json not found.")
 
     # 4. Config parses
     config_path = get_config_path(root)
