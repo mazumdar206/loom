@@ -13,6 +13,16 @@ SLEEP_INITIAL=10
 SLEEP_MAX=300
 SLEEP_CURRENT=$SLEEP_INITIAL
 
+# Read implementer model from config (falls back to empty string = CLI default)
+IMPLEMENTER_MODEL=$(python3 -c "
+import yaml, sys
+try:
+    cfg = yaml.safe_load(open('$PROJECT_ROOT/.specdd/config.yml'))
+    print(cfg.get('models', {}).get('implementer', ''))
+except Exception as e:
+    sys.exit(0)
+" 2>/dev/null || true)
+
 trap 'echo "[$(date +%H:%M:%S)] Stopping loop."; exit 0' INT TERM
 
 echo "[$(date +%H:%M:%S)] SpecDD implementer loop starting."
@@ -49,7 +59,12 @@ while true; do
   # Gemini runs in agentic mode — multi-turn within one invocation.
   # If complete_task returns an error (tests failed), Gemini sees it and retries
   # in the same session. The script only resumes when Gemini exits.
-  gemini -p "Run the SpecDD implementer protocol for task $TASK_ID. Follow GEMINI.md exactly. Call start_task($TASK_ID), then proceed through plan approval (if required), Red/Green/Refactor coding, and finally complete_task or escalate_task. Use complete_task tool errors to drive retry: if tests fail, fix the code and call complete_task again. Exit when the tool call returns submitted, done, or escalated."
+  MODEL_FLAG=""
+  if [ -n "$IMPLEMENTER_MODEL" ]; then
+    MODEL_FLAG="--model $IMPLEMENTER_MODEL"
+  fi
+
+  gemini $MODEL_FLAG -p "Run the SpecDD implementer protocol for task $TASK_ID. Follow GEMINI.md exactly. Call start_task($TASK_ID), then proceed through plan approval (if required), Red/Green/Refactor coding, and finally complete_task or escalate_task. Use complete_task tool errors to drive retry: if tests fail, fix the code and call complete_task again. Exit when the tool call returns submitted, done, or escalated."
 
   # Check final state
   if ! STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=$TASK_ID;" 2>&1); then
