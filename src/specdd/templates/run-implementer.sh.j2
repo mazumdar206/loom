@@ -1,0 +1,90 @@
+#!/bin/bash
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+DB="$PROJECT_ROOT/.specdd/state.db"
+
+if [ ! -f "$DB" ]; then
+  echo "Error: $DB not found. Run 'specdd init' first."
+  exit 1
+fi
+
+SLEEP_INITIAL=10
+SLEEP_MAX=300
+SLEEP_CURRENT=$SLEEP_INITIAL
+
+trap 'echo "[$(date +%H:%M:%S)] Stopping loop."; exit 0' INT TERM
+
+echo "[$(date +%H:%M:%S)] SpecDD implementer loop starting."
+echo "[$(date +%H:%M:%S)] Project: $PROJECT_ROOT"
+
+while true; do
+  # Cheap SQL check — no model invoked
+  if ! NEXT=$(sqlite3 "$DB" "SELECT id||'|'||complexity FROM tasks WHERE status='TODO' OR (status='IN_PROGRESS' AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = tasks.id AND e.created_at > datetime('now', '-5 seconds'))) ORDER BY (CASE status WHEN 'TODO' THEN 0 ELSE 1 END), priority, created_at LIMIT 1;" 2>&1); then
+    echo "[$(date +%H:%M:%S)] DB query failed: $NEXT"
+    echo "[$(date +%H:%M:%S)] Pausing 30s before retry."
+    sleep 30
+    continue
+  fi
+
+  if [ -z "$NEXT" ]; then
+    echo "[$(date +%H:%M:%S)] Queue empty. Sleeping ${SLEEP_CURRENT}s."
+    sleep "$SLEEP_CURRENT"
+    SLEEP_CURRENT=$(( SLEEP_CURRENT * 2 ))
+    [ $SLEEP_CURRENT -gt $SLEEP_MAX ] && SLEEP_CURRENT=$SLEEP_MAX
+    continue
+  fi
+
+  SLEEP_CURRENT=$SLEEP_INITIAL
+  TASK_ID="${NEXT%%|*}"
+  COMPLEXITY="${NEXT##*|}"
+
+  if [ -z "$TASK_ID" ] || [ -z "$COMPLEXITY" ]; then
+    echo "[$(date +%H:%M:%S)] Malformed DB result: '$NEXT'. Pausing."
+    exit 1
+  fi
+
+  echo "[$(date +%H:%M:%S)] Task #$TASK_ID ($COMPLEXITY) ready. Invoking Gemini."
+
+  # Gemini runs in agentic mode — multi-turn within one invocation.
+  # If complete_task returns an error (tests failed), Gemini sees it and retries
+  # in the same session. The script only resumes when Gemini exits.
+  gemini -p "Run the SpecDD implementer protocol for task $TASK_ID. Follow GEMINI.md exactly. Call start_task($TASK_ID), then proceed through plan approval (if required), Red/Green/Refactor coding, and finally complete_task or escalate_task. Use complete_task tool errors to drive retry: if tests fail, fix the code and call complete_task again. Exit when the tool call returns submitted, done, or escalated."
+
+  # Check final state
+  if ! STATUS=$(sqlite3 "$DB" "SELECT status FROM tasks WHERE id=$TASK_ID;" 2>&1); then
+    echo "[$(date +%H:%M:%S)] DB query failed: $STATUS. Pausing."
+    exit 1
+  fi
+
+  if [ -z "$STATUS" ]; then
+    echo "[$(date +%H:%M:%S)] Task #$TASK_ID not found. DB inconsistency. Pausing."
+    exit 1
+  fi
+
+  case "$STATUS" in
+    DONE)
+      echo "[$(date +%H:%M:%S)] Task #$TASK_ID complete."
+      ;;
+    AWAITING_APPROVAL)
+      echo "[$(date +%H:%M:%S)] Plan for #$TASK_ID awaiting approval."
+      echo "  Run: specdd plans pending"
+      echo "  Then: specdd approve $TASK_ID"
+      exit 0
+      ;;
+    ESCALATED)
+      echo "[$(date +%H:%M:%S)] Task #$TASK_ID escalated."
+      echo "  Run: specdd resolve $TASK_ID"
+      exit 0
+      ;;
+    PLANNING|IN_PROGRESS)
+      echo "[$(date +%H:%M:%S)] Task #$TASK_ID stuck in $STATUS. Gemini exited without resolution."
+      echo "  Check: specdd logs show $TASK_ID"
+      exit 1
+      ;;
+    *)
+      echo "[$(date +%H:%M:%S)] Unexpected status '$STATUS' for #$TASK_ID. Pausing."
+      exit 1
+      ;;
+  esac
+done

@@ -1,0 +1,37 @@
+version: 1
+template_version: "{{ template_version }}"
+
+models:
+  architect: {{ architect_model }}
+  implementer: {{ implementer_model }}
+
+paths:
+  specs: docs/specs
+  bdd_tests: tests/bdd
+  unit_tests: tests/unit
+  source: {{ source_dir }}
+
+approval_thresholds:
+  trivial:   { plan: false, complete: false }
+  small:     { plan: false, complete: true  }
+  medium:    { plan: true,  complete: true  }
+  large:     { plan: true,  complete: true, spec: true }
+
+implementer_loop:
+  idle_sleep_initial: 10
+  idle_sleep_max: 300
+
+test_runners:
+  bdd: "{{ bdd_framework }}"
+  unit: "{{ unit_framework }} tests/unit"
+  timeout_seconds: 120
+
+bash_allowlist:
+  - "pytest *"
+  - "behave *"
+  - "git diff*"
+  - "git status"
+
+logging:
+  level: INFO
+  retention_days: 14

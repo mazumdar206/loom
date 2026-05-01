@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "specdd": {
+      "command": "specdd-implementer-mcp",
+      "args": ["--project-root", "."]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Edit(src/**)", "Write(src/**)",
+      "Edit(tests/unit/**)", "Write(tests/unit/**)",
+      "Bash(pytest *)", "Bash(behave *)", "Bash(git status)", "Bash(git diff*)"
+    ],
+    "deny": [
+      "Edit(docs/specs/**)", "Write(docs/specs/**)",
+      "Edit(tests/bdd/**)", "Write(tests/bdd/**)",
+      "Edit(.specdd/**)", "Write(.specdd/**)"
+    ]
+  }
+}

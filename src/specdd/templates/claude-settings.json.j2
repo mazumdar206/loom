@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "specdd": {
+      "command": "specdd-architect-mcp",
+      "args": ["--project-root", "."]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Bash({{ bash_allowlist | join(',') }})"
+    ],
+    "deny": [
+      "Edit(docs/specs/**)",
+      "Write(docs/specs/**)",
+      "Edit(tests/bdd/**)",
+      "Write(tests/bdd/**)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Edit(tests/unit/**)",
+      "Write(tests/unit/**)",
+      "Edit(.specdd/**)",
+      "Write(.specdd/**)"
+    ]
+  }
+}
